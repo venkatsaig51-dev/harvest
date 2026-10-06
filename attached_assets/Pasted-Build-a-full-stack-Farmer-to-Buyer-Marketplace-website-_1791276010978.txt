@@ -1,0 +1,166 @@
+Build a **full-stack Farmer-to-Buyer Marketplace website** called **FarmDirect**.
+
+### Goal
+
+Create a platform where farmers can directly sell their products to consumers, restaurants, retailers, and wholesalers, reducing middlemen and helping farmers get fair prices.
+
+### Tech Stack
+
+* Frontend: React + Vite + CSS/Tailwind
+* Backend: Node.js + Express
+* Database: SQLite
+* Authentication: JWT + bcrypt
+* Use JavaScript only.
+
+### Main Features
+
+**1. Home Page**
+
+* Modern agriculture-themed design
+* Hero section: "Fresh From Farmers, Directly to You"
+* Browse Products button
+* Sell Products button
+* Featured products
+* Popular categories
+* How it works
+
+**2. Farmer**
+
+* Register/Login
+* Farmer profile
+* Add, edit, and delete products
+* Product image, name, category, price, quantity, location
+* View orders
+* Update order status
+* View earnings
+
+**3. Buyer**
+
+* Register/Login
+* Browse products
+* Search and filter products
+* View farmer details
+* Add products to cart
+* Checkout
+* Place orders
+* Track orders
+* Give ratings and reviews
+
+**4. Business Buyers**
+Allow restaurants, retailers, and wholesalers to:
+
+* Buy products in bulk
+* Request bulk prices
+* Place bulk orders
+
+**5. Admin**
+
+* Login
+* View farmers, buyers, products, and orders
+* Approve farmers
+* Remove products
+* View basic statistics
+
+### Product Categories
+
+* Vegetables
+* Fruits
+* Grains
+* Pulses
+* Spices
+* Dairy
+* Organic Products
+
+### Product Card
+
+Show:
+
+* Product image
+* Product name
+* Price/kg
+* Available quantity
+* Farmer name
+* Location
+* Rating
+* Verified Farmer badge
+* Add to Cart button
+
+### Order Status
+
+```text
+Pending → Confirmed → Processing → Shipped → Delivered
+```
+
+### Database
+
+Create simple SQLite tables for:
+
+* Users
+* Farmers
+* Products
+* Orders
+* Order Items
+* Reviews
+* Bulk Requests
+
+Add sample Indian data such as tomatoes, rice, onions, mangoes, chillies, etc.
+
+### Design
+
+Make it:
+
+* Modern
+* Clean
+* Green agriculture theme
+* Mobile responsive
+* Simple and easy for farmers to use
+
+Use cards, buttons, navbar, dashboard sidebar, search bar, and responsive layouts.
+
+### Important
+
+Keep the project **simple and functional**. Do not add unnecessary features or paid APIs.
+
+Do NOT add:
+
+* Real payment gateway
+* Google Maps
+* AI chatbot
+* SMS
+* Email services
+* WebSockets
+* Complex analytics
+
+Use mock payment/COD instead.
+
+### Demo Accounts
+
+Create:
+
+```text
+Admin:
+admin@farmdirect.com
+admin123
+
+Farmer:
+farmer@farmdirect.com
+farmer123
+
+Buyer:
+buyer@farmdirect.com
+buyer123
+```
+
+### Final Requirement
+
+Make sure the complete application works:
+
+**Farmer Login → Add Product → Product appears**
+
+**Buyer Login → Browse → Cart → Checkout → Order**
+
+**Farmer → View Order → Update Status**
+
+**Buyer → Review Product**
+
+Provide a clean project structure and a README with setup instructions.

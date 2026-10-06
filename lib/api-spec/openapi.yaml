@@ -3,20 +3,24 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FarmDirect marketplace API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: auth
+  - name: products
+  - name: orders
+  - name: reviews
+  - name: bulk
+  - name: admin
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +28,611 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in to FarmDirect
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Create a buyer or farmer account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get the signed-in user
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Error"
+  /products:
+    get:
+      operationId: getProducts
+      tags: [products]
+      summary: Browse and filter products
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProductCategory"
+        - name: location
+          in: query
+          schema: { type: string }
+        - name: featured
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Marketplace products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Add a product as a farmer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductInput"
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get product details
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Product details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Edit an owned product
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete an owned product
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Product deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /orders:
+    get:
+      operationId: getMyOrders
+      tags: [orders]
+      summary: List orders for the signed-in buyer or farmer
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+    post:
+      operationId: checkout
+      tags: [orders]
+      summary: Place an order with cash on delivery
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutInput"
+      responses:
+        "201":
+          description: Order placed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/Error"
+  /orders/{id}/status:
+    patch:
+      operationId: updateOrderStatus
+      tags: [orders]
+      summary: Update the status of an order
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderStatusInput"
+      responses:
+        "200":
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          $ref: "#/components/responses/Error"
+  /reviews:
+    post:
+      operationId: createReview
+      tags: [reviews]
+      summary: Review a delivered product
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "201":
+          description: Review created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "400":
+          $ref: "#/components/responses/Error"
+  /products/{id}/reviews:
+    get:
+      operationId: getProductReviews
+      tags: [reviews]
+      summary: List product reviews
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Reviews for a product
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Review"
+  /bulk-requests:
+    get:
+      operationId: getBulkRequests
+      tags: [bulk]
+      summary: List bulk requests for the current user
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Bulk requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BulkRequest"
+    post:
+      operationId: createBulkRequest
+      tags: [bulk]
+      summary: Request a bulk price or place a bulk order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkRequestInput"
+      responses:
+        "201":
+          description: Bulk request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkRequest"
+  /marketplace/stats:
+    get:
+      operationId: getMarketplaceStats
+      tags: [products]
+      summary: Get marketplace overview statistics
+      responses:
+        "200":
+          description: Marketplace statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceStats"
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [admin]
+      summary: List users for admin management
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+  /admin/users/{id}/approval:
+    patch:
+      operationId: approveFarmer
+      tags: [admin]
+      summary: Approve or suspend a farmer
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FarmerApprovalInput"
+      responses:
+        "200":
+          description: Updated farmer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /admin/products:
+    get:
+      operationId: getAdminProducts
+      tags: [admin]
+      summary: List products for admin moderation
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+  /admin/orders:
+    get:
+      operationId: getAdminOrders
+      tags: [admin]
+      summary: List all orders for admin
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+  responses:
+    Error:
+      description: Request could not be completed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   schemas:
     HealthStatus:
       type: object
       properties:
+        status: { type: string }
+      required: [status]
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role:
+          type: string
+          enum: [farmer, buyer, business, admin]
+        location: { type: string }
+        verified: { type: boolean }
+        organization: { type: ["string", "null"] }
+        createdAt: { type: string }
+      required: [id, name, email, role, location, verified, organization, createdAt]
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category:
+          $ref: "#/components/schemas/ProductCategory"
+        price: { type: number }
+        quantity: { type: number }
+        unit: { type: string }
+        location: { type: string }
+        description: { type: string }
+        imageUrl: { type: string }
+        farmerId: { type: integer }
+        farmerName: { type: string }
+        verifiedFarmer: { type: boolean }
+        rating: { type: number }
+        reviewCount: { type: integer }
+        minBulkQuantity: { type: number }
+        featured: { type: boolean }
+      required: [id, name, category, price, quantity, unit, location, description, imageUrl, farmerId, farmerName, verifiedFarmer, rating, reviewCount, minBulkQuantity, featured]
+    ProductCategory:
+      type: string
+      enum: [Vegetables, Fruits, Grains, Pulses, Spices, Dairy, "Organic Products"]
+    ProductInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        category:
+          $ref: "#/components/schemas/ProductCategory"
+        price: { type: number, exclusiveMinimum: 0 }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { type: string }
+        location: { type: string }
+        description: { type: string }
+        imageUrl: { type: string }
+        minBulkQuantity: { type: number, minimum: 1 }
+        featured: { type: boolean }
+      required: [name, category, price, quantity, unit, location, description]
+    ProductUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        category:
+          $ref: "#/components/schemas/ProductCategory"
+        price: { type: number, exclusiveMinimum: 0 }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { type: string }
+        location: { type: string }
+        description: { type: string }
+        imageUrl: { type: string }
+        minBulkQuantity: { type: number, minimum: 1 }
+        featured: { type: boolean }
+    LoginInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+      required: [email, password]
+    RegisterInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+        role:
+          type: string
+          enum: [farmer, buyer, business]
+        location: { type: string }
+        organization: { type: string }
+      required: [name, email, password, role, location]
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        user:
+          $ref: "#/components/schemas/User"
+      required: [token, user]
+    OrderItemInput:
+      type: object
+      properties:
+        productId: { type: integer }
+        quantity: { type: number, exclusiveMinimum: 0 }
+      required: [productId, quantity]
+    CheckoutInput:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/OrderItemInput"
+        deliveryAddress: { type: string, minLength: 1 }
+        paymentMethod:
+          type: string
+          enum: [cod]
+      required: [items, deliveryAddress, paymentMethod]
+    OrderItem:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        unitPrice: { type: number }
+        imageUrl: { type: string }
+        farmerId: { type: integer }
+        farmerName: { type: string }
+      required: [id, productId, productName, quantity, unitPrice, imageUrl, farmerId, farmerName]
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        buyerId: { type: integer }
+        buyerName: { type: string }
         status:
           type: string
-      required:
-        - status
-
+          enum: [Pending, Confirmed, Processing, Shipped, Delivered, Cancelled]
+        deliveryAddress: { type: string }
+        paymentMethod: { type: string, enum: [cod] }
+        total: { type: number }
+        createdAt: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+      required: [id, buyerId, buyerName, status, deliveryAddress, paymentMethod, total, createdAt, items]
+    OrderStatusInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Confirmed, Processing, Shipped, Delivered, Cancelled]
+      required: [status]
+    ReviewInput:
+      type: object
+      properties:
+        productId: { type: integer }
+        orderId: { type: integer }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string, minLength: 1 }
+      required: [productId, orderId, rating, comment]
+    Review:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        buyerId: { type: integer }
+        buyerName: { type: string }
+        rating: { type: integer }
+        comment: { type: string }
+        createdAt: { type: string }
+      required: [id, productId, buyerId, buyerName, rating, comment, createdAt]
+    BulkRequestInput:
+      type: object
+      properties:
+        productId: { type: integer }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        targetPrice: { type: ["number", "null"], minimum: 0 }
+        notes: { type: string }
+      required: [productId, quantity, notes]
+    BulkRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        buyerId: { type: integer }
+        buyerName: { type: string }
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        targetPrice: { type: ["number", "null"] }
+        notes: { type: string }
+        status: { type: string, enum: [Pending, Accepted, Declined] }
+        createdAt: { type: string }
+      required: [id, buyerId, buyerName, productId, productName, quantity, targetPrice, notes, status, createdAt]
+    FarmerApprovalInput:
+      type: object
+      properties:
+        verified: { type: boolean }
+      required: [verified]
+    MarketplaceStats:
+      type: object
+      properties:
+        productCount: { type: integer }
+        farmerCount: { type: integer }
+        orderCount: { type: integer }
+        revenue: { type: number }
+      required: [productCount, farmerCount, orderCount, revenue]

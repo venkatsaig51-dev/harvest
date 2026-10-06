@@ -1,5 +1,8 @@
 import app from "./app";
+import { initializeFarmDirectDb } from "./lib/farmdirect-db";
 import { logger } from "./lib/logger";
+
+await initializeFarmDirectDb();
 
 const rawPort = process.env["PORT"];
 
