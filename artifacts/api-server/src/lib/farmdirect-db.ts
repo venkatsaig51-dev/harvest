@@ -1,97 +1,76 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { pool } from "@workspace/db";
 import bcrypt from "bcryptjs";
 
-const dataDirectory = join(process.cwd(), "data");
-mkdirSync(dataDirectory, { recursive: true });
+type QueryOutput = { rows: unknown[]; rowCount: number | null };
+type QueryFunction = (sql: string, values: unknown[]) => Promise<QueryOutput>;
+type RunResult = { lastInsertRowid: number | undefined; changes: number };
 
-export const database = new DatabaseSync(
-  process.env.FARMDIRECT_DB_PATH ?? join(dataDirectory, "farmdirect.sqlite"),
-);
+export type FarmDirectDbSession = {
+  one: <T>(sql: string, ...values: unknown[]) => Promise<T | undefined>;
+  many: <T>(sql: string, ...values: unknown[]) => Promise<T[]>;
+  run: (sql: string, ...values: unknown[]) => Promise<RunResult>;
+};
 
-database.exec(`
-  PRAGMA foreign_keys = ON;
-  PRAGMA journal_mode = WAL;
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
 
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('farmer', 'buyer', 'business', 'admin')),
-    location TEXT NOT NULL DEFAULT '',
-    verified INTEGER NOT NULL DEFAULT 0,
-    organization TEXT,
-    created_at TEXT NOT NULL
-  );
+function createSession(query: QueryFunction): FarmDirectDbSession {
+  return {
+    async one<T>(sql: string, ...values: unknown[]): Promise<T | undefined> {
+      const result = await query(postgresSql(sql), values);
+      return result.rows[0] as T | undefined;
+    },
+    async many<T>(sql: string, ...values: unknown[]): Promise<T[]> {
+      const result = await query(postgresSql(sql), values);
+      return result.rows as T[];
+    },
+    async run(sql: string, ...values: unknown[]): Promise<RunResult> {
+      const statement = postgresSql(sql);
+      const insertStatement =
+        /^\s*INSERT\b/i.test(statement) && !/\bRETURNING\b/i.test(statement)
+          ? `${statement.trim().replace(/;$/, "")} RETURNING id`
+          : statement;
+      const result = await query(insertStatement, values);
+      const inserted = result.rows[0] as { id?: number } | undefined;
+      return {
+        lastInsertRowid: inserted?.id,
+        changes: result.rowCount ?? 0,
+      };
+    },
+  };
+}
 
-  CREATE TABLE IF NOT EXISTS farmers (
-    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    farm_name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT ''
-  );
+const rootSession = createSession(async (sql, values) => {
+  const result = await pool.query(sql, values as never[]);
+  return { rows: result.rows, rowCount: result.rowCount };
+});
 
-  CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    price REAL NOT NULL CHECK (price > 0),
-    quantity REAL NOT NULL CHECK (quantity >= 0),
-    unit TEXT NOT NULL DEFAULT 'kg',
-    location TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    image_url TEXT NOT NULL DEFAULT '',
-    farmer_id INTEGER NOT NULL REFERENCES users(id),
-    min_bulk_quantity REAL NOT NULL DEFAULT 25,
-    featured INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
+export const one = rootSession.one;
+export const many = rootSession.many;
+export const run = rootSession.run;
 
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    buyer_id INTEGER NOT NULL REFERENCES users(id),
-    status TEXT NOT NULL DEFAULT 'Pending',
-    delivery_address TEXT NOT NULL,
-    payment_method TEXT NOT NULL DEFAULT 'cod',
-    total REAL NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id INTEGER NOT NULL,
-    product_name TEXT NOT NULL,
-    quantity REAL NOT NULL,
-    unit_price REAL NOT NULL,
-    image_url TEXT NOT NULL DEFAULT '',
-    farmer_id INTEGER NOT NULL,
-    farmer_name TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS reviews (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    buyer_id INTEGER NOT NULL REFERENCES users(id),
-    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    comment TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (order_id, product_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS bulk_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    buyer_id INTEGER NOT NULL REFERENCES users(id),
-    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    quantity REAL NOT NULL,
-    target_price REAL,
-    notes TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'Pending',
-    created_at TEXT NOT NULL
-  );
-`);
+export async function withTransaction<T>(
+  callback: (transaction: FarmDirectDbSession) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const transaction = createSession(async (sql, values) => {
+      const result = await client.query(sql, values as never[]);
+      return { rows: result.rows, rowCount: result.rowCount };
+    });
+    const result = await callback(transaction);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export type UserRole = "farmer" | "buyer" | "business" | "admin";
 export type UserRow = {
@@ -164,25 +143,25 @@ export function productRecord(row: ProductRow) {
     id: row.id,
     name: row.name,
     category: row.category,
-    price: row.price,
-    quantity: row.quantity,
+    price: Number(row.price),
+    quantity: Number(row.quantity),
     unit: row.unit,
     location: row.location,
     description: row.description,
     imageUrl: row.image_url,
-    farmerId: row.farmer_id,
+    farmerId: Number(row.farmer_id),
     farmerName: row.farmer_name,
     verifiedFarmer: Boolean(row.verified_farmer),
-    rating: row.rating,
-    reviewCount: row.review_count,
-    minBulkQuantity: row.min_bulk_quantity,
+    rating: Number(row.rating),
+    reviewCount: Number(row.review_count),
+    minBulkQuantity: Number(row.min_bulk_quantity),
     featured: Boolean(row.featured),
   };
 }
 
 export async function initializeFarmDirectDb(): Promise<void> {
-  const userCount = one<{ count: number }>("SELECT COUNT(*) AS count FROM users")
-    ?.count ?? 0;
+  const userCount =
+    (await one<{ count: number }>("SELECT COUNT(*)::int AS count FROM users"))?.count ?? 0;
   const timestamp = new Date().toISOString();
   const demoUsers = [
     {
@@ -217,7 +196,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
   if (userCount === 0) {
     for (const user of demoUsers) {
       const passwordHash = await bcrypt.hash(user.password, 10);
-      run(
+      await run(
         `INSERT INTO users (name, email, password_hash, role, location, verified, organization, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         user.name,
@@ -232,18 +211,26 @@ export async function initializeFarmDirectDb(): Promise<void> {
     }
   }
 
-  const farmer = one<UserRow>("SELECT * FROM users WHERE email = ?", "farmer@farmdirect.com");
-  const buyer = one<UserRow>("SELECT * FROM users WHERE email = ?", "buyer@farmdirect.com");
+  const farmer = await one<UserRow>(
+    "SELECT * FROM users WHERE email = ?",
+    "farmer@farmdirect.com",
+  );
+  const buyer = await one<UserRow>(
+    "SELECT * FROM users WHERE email = ?",
+    "buyer@farmdirect.com",
+  );
   if (!farmer || !buyer) return;
 
-  run(
-    "INSERT OR IGNORE INTO farmers (user_id, farm_name, description) VALUES (?, ?, ?)",
+  await run(
+    "INSERT INTO farmers (user_id, farm_name, description) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
     farmer.id,
     "Meera Farms",
     "Family-grown seasonal produce from the Nashik valley.",
   );
 
-  if ((one<{ count: number }>("SELECT COUNT(*) AS count FROM products")?.count ?? 0) === 0) {
+  if (
+    (await one<{ count: number }>("SELECT COUNT(*)::int AS count FROM products")?.count ?? 0) === 0
+  ) {
     const products = [
       {
         name: "Vine-Ripened Tomatoes",
@@ -314,7 +301,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
     ];
 
     for (const product of products) {
-      run(
+      await run(
         `INSERT INTO products
           (name, category, price, quantity, unit, location, description, image_url, farmer_id, min_bulk_quantity, featured, created_at)
          VALUES (?, ?, ?, ?, 'kg', ?, ?, ?, ?, ?, ?, ?)`,
@@ -333,28 +320,29 @@ export async function initializeFarmDirectDb(): Promise<void> {
     }
   }
 
-  run(
+  await run(
     "UPDATE products SET image_url = ? WHERE name = ? AND image_url = ?",
     "/red-onions.svg",
     "Red Onions",
     "https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=900&q=85",
   );
 
-  const pendingOrderExists = one<{ count: number }>(
-    "SELECT COUNT(*) AS count FROM orders WHERE buyer_id = ?",
-    buyer.id,
-  )?.count ?? 0;
+  const pendingOrderExists =
+    (await one<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM orders WHERE buyer_id = ?",
+      buyer.id,
+    ))?.count ?? 0;
   if (pendingOrderExists === 0) {
-    const tomatoes = one<{ id: number; name: string; price: number; image_url: string }>(
+    const tomatoes = await one<{ id: number; name: string; price: number; image_url: string }>(
       "SELECT id, name, price, image_url FROM products WHERE name = ?",
       "Vine-Ripened Tomatoes",
     );
-    const rice = one<{ id: number; name: string; price: number; image_url: string }>(
+    const rice = await one<{ id: number; name: string; price: number; image_url: string }>(
       "SELECT id, name, price, image_url FROM products WHERE name = ?",
       "Kolam Rice",
     );
     if (tomatoes && rice) {
-      const pending = run(
+      const pending = await run(
         `INSERT INTO orders (buyer_id, status, delivery_address, payment_method, total, created_at)
          VALUES (?, 'Pending', ?, 'cod', ?, ?)`,
         buyer.id,
@@ -362,7 +350,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
         tomatoes.price * 4,
         timestamp,
       );
-      const delivered = run(
+      const delivered = await run(
         `INSERT INTO orders (buyer_id, status, delivery_address, payment_method, total, created_at)
          VALUES (?, 'Delivered', ?, 'cod', ?, ?)`,
         buyer.id,
@@ -370,7 +358,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
         rice.price * 10,
         timestamp,
       );
-      run(
+      await run(
         `INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, image_url, farmer_id, farmer_name)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         Number(pending.lastInsertRowid),
@@ -382,7 +370,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
         farmer.id,
         farmer.name,
       );
-      run(
+      await run(
         `INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, image_url, farmer_id, farmer_name)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         Number(delivered.lastInsertRowid),
@@ -394,7 +382,7 @@ export async function initializeFarmDirectDb(): Promise<void> {
         farmer.id,
         farmer.name,
       );
-      run(
+      await run(
         `INSERT INTO reviews (product_id, order_id, buyer_id, rating, comment, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
         rice.id,
